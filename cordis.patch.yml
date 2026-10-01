@@ -1,0 +1,30 @@
+# dsh-steam — Steam tools for DeepSeek Harness
+#
+# 本文件既是 bundle 的 patch 层，也是这份插件的**运行时配置**：
+# 安装副本（C:\Users\11210\dsh-bundles\steam\cordis.patch.yml）里的这份内容会被
+# profile 直接读取，改完即生效（有 HMR 时不必重启）。
+#
+# 密钥不写在这里。Steam Web API Key 走凭据服务，按下面的优先级解析：
+#   1. 启动环境变量（必须在启动 DSH 前设好）
+#   2. C:\Users\11210\.dsh\.credentials.yaml
+#   3. <启动目录>\.env
+#   4. C:\Users\11210\.dsh\.env          ← 最省事的一种，改完自动重载
+# 也就是在 C:\Users\11210\.dsh\.env 里写一行：
+#   STEAM_API_KEY=你的KEY
+#
+# webApi 取值：
+#   auto（默认）—— 激活时能解析到 Key 才注册 5 个需要 Key 的工具
+#   on          —— 总是注册；没有 Key 时调用会返回可执行的修复提示
+#   off         —— 永不注册
+- insert:
+    - id: steam
+      name: '@local/steam'
+      config:
+        steamPath: ''
+        extraLibraryPaths: []
+        webApi: auto
+        apiKeyEnv: STEAM_API_KEY
+        storeCountry: cn
+        storeLanguage: schinese
+        requestTimeoutMs: 15000
+        maxListedApps: 200

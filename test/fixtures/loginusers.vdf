@@ -1,0 +1,23 @@
+"users"
+{
+	"76561190000000000"
+	{
+		"AccountName"		"example-account"
+		"PersonaName"		"Example Persona"
+		"RememberPassword"		"1"
+		"WantsOfflineMode"		"0"
+		"SkipOfflineModeWarning"		"1"
+		"AutoLogin"		"1"
+		"Timestamp"		"1790832907"
+	}
+	"76561190000000001"
+	{
+		"AccountName"		"older-account"
+		"PersonaName"		"Older Persona"
+		"RememberPassword"		"1"
+		"WantsOfflineMode"		"0"
+		"SkipOfflineModeWarning"		"0"
+		"AutoLogin"		"0"
+		"Timestamp"		"1700000000"
+	}
+}
