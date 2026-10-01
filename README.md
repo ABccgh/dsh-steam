@@ -134,7 +134,8 @@ Node 的默认 CA 列表**，然后重试一次。这等于「信任操作系统
 | `没有找到本机 Steam 安装` | 在 `cordis.patch.yml` 里把 `steamPath` 设成绝对路径 |
 | `连接被拒绝：本机 hosts 可能把该域名指向了 127.0.0.1…` | 加速器没在运行。启动它，或关掉 hosts 加速模式 |
 | `TLS 证书链无法验证…` | 见上一节；确认 `trustSystemCa` 不是 `never` |
-| 密钥层工具不出现 | `webApi` 是 `off`，或 `$DSH_HOME/.env` 里没有 `STEAM_API_KEY`。用 `webApi: on` 可以强制注册，调用时会给出具体指引 |
+| 密钥层工具不出现 | `webApi` 是 `off`，或凭据里没有 `STEAM_API_KEY`。先看 `steam_status`：它最后一行直接给出「已配置／未配置」，不用猜。`webApi: on` 可强制注册，调用时会给出指引 |
+| 写了 `$DSH_HOME/.env` 还是不出现 | 桌面版只在 `cwd !== $DSH_HOME` 时才把 `$DSH_HOME/.env` 当 `user-env` 层读取。改用**启动环境变量**最稳：`setx STEAM_API_KEY "你的KEY"` 后重启 DSH——这一层是无条件读取的最高优先级 |
 | `拿不到 … 的游戏列表：该账号的「游戏详情」隐私设置不是公开` | 在 Steam 隐私设置里把「游戏详情」设为公开 |
 | 改了仓库代码但线上没变 | 安装读的是副本（`%USERPROFILE%\dsh-bundles\steam`），而且要**重启 DSH** 才会生效：Host 进程会缓存已加载的 ESM 模块，插件页关开、HMR 重载都只重新装配配置，不会重新读代码。改完先 robocopy，再重启应用。只改 `cordis.patch.yml` 的配置值则不需要重启 |
 | DSH 升级后插件装不上 | 已无 `peerDependencies`，正常升级不会受影响；如果安装仍被拒，看管理器给出的诊断 |

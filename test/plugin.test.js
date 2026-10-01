@@ -137,6 +137,32 @@ test('normalizeConfig 把非法值收成默认值', () => {
   assert.equal(custom.maxListedApps, 7);
 });
 
+test('steam_status 回报 Web API Key 的配置状态', async () => {
+  const withoutKey = makeCtx();
+  await apply(withoutKey.ctx, {});
+  const missing = await call(withoutKey.tools, 'steam_status');
+  assert.match(missing.text, /Web API Key（STEAM_API_KEY）：未配置/);
+  assert.match(missing.text, /不会注册/, '要说明密钥层工具为什么没出现');
+  assert.match(missing.text, /\.env/, '要给出可执行的排查路径');
+
+  const credentials = {
+    async resolve(ref) {
+      return ref === 'STEAM_API_KEY' ? { value: 'A'.repeat(24), source: 'test' } : undefined;
+    },
+  };
+  const withKey = makeCtx({ credentials });
+  await apply(withKey.ctx, {});
+  const present = await call(withKey.tools, 'steam_status');
+  assert.match(present.text, /Web API Key（STEAM_API_KEY）：已配置（长度 24）/);
+});
+
+test('steam_status 在自定义 apiKeyEnv 下报告对应的凭据名', async () => {
+  const { ctx, tools } = makeCtx();
+  await apply(ctx, { apiKeyEnv: 'MY_STEAM_KEY' });
+  const { text } = await call(tools, 'steam_status');
+  assert.match(text, /Web API Key（MY_STEAM_KEY）：未配置/);
+});
+
 test('steam_status 报出本机真实安装', async (t) => {
   const { ctx, tools } = makeCtx();
   await apply(ctx, {});
