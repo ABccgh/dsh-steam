@@ -163,6 +163,58 @@ test('steam_status 在自定义 apiKeyEnv 下报告对应的凭据名', async ()
   assert.match(text, /Web API Key（MY_STEAM_KEY）：未配置/);
 });
 
+test('auto 模式：激活时凭据服务没就绪，稍后拿到 Key 会自动补注册', async () => {
+  // 真实桌面版就是这个时序：插件先激活，凭据服务之后才完成初始化。
+  // 前两次解析返回空，第三次（兜底重试的第一次）才拿到 Key。
+  let calls = 0;
+  const credentials = {
+    async resolve() {
+      calls += 1;
+      return calls > 2 ? { value: 'B'.repeat(32), source: 'test' } : undefined;
+    },
+  };
+  const { ctx, tools } = makeCtx({ credentials });
+  await apply(ctx, {});
+  assert.equal(tools.size, 9, '激活时凭据还没就绪，只应注册不需要 Key 的工具');
+
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  assert.equal(tools.size, 14, '重试后应补上 5 个密钥层工具');
+  assert.ok(tools.has('steam_player'));
+
+  const { text } = await tools.get('steam_status').execute({}, {});
+  assert.match(text, /已配置（长度 32）—— 5 个密钥层工具已注册/);
+});
+
+test('steam_status 会自愈：凭据就绪后调用一次就补上密钥层工具', async () => {
+  // 激活与紧随其后的第一次兜底重试都拿不到 Key，第三次（由 steam_status 触发）才拿到。
+  let calls = 0;
+  const credentials = {
+    async resolve() {
+      calls += 1;
+      return calls >= 3 ? { value: 'D'.repeat(32), source: 'test' } : undefined;
+    },
+  };
+  const { ctx, tools } = makeCtx({ credentials });
+  await apply(ctx, {});
+  assert.equal(tools.size, 9, '激活时还没有 Key');
+
+  const { text } = await tools.get('steam_status').execute({}, {});
+  assert.equal(tools.size, 14, 'steam_status 应触发补注册');
+  assert.match(text, /已配置（长度 32）—— 5 个密钥层工具已注册/);
+});
+
+test('webApi=off 且 Key 可用时，steam_status 说明是按配置未注册', async () => {
+  const credentials = {
+    async resolve() {
+      return { value: 'C'.repeat(32) };
+    },
+  };
+  const { ctx, tools } = makeCtx({ credentials });
+  await apply(ctx, { webApi: 'off' });
+  const { text } = await tools.get('steam_status').execute({}, {});
+  assert.match(text, /已配置（长度 32），但 webApi=off/);
+});
+
 test('steam_status 报出本机真实安装', async (t) => {
   const { ctx, tools } = makeCtx();
   await apply(ctx, {});

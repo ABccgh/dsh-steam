@@ -163,7 +163,8 @@ test('mapQueryFiles 整理创意工坊条目', () => {
         {
           publishedfileid: '3803258931',
           title: '法理征服 / De Jure Conquest',
-          consumer_app_id: 1158310,
+          consumer_appid: 1158310,
+          app_name: 'Crusader Kings III',
           file_size: '123456',
           subscriptions: 900,
           favorited: 30,
@@ -181,8 +182,16 @@ test('mapQueryFiles 整理创意工坊条目', () => {
   // file_size 是 uint64，Steam 会把它序列化成字符串；这里必须转成数字，否则工具永远显示"大小未知"。
   assert.equal(mapped.items[0].fileSize, 123456);
   assert.equal(mapped.items[0].subscriptions, 900);
+  // 真实字段名是 consumer_appid；app_name 优先用于展示。
   assert.equal(mapped.items[0].appid, 1158310);
+  assert.equal(mapped.items[0].appName, 'Crusader Kings III');
   assert.deepEqual(mapQueryFiles({}).items, []);
+});
+
+test('mapQueryFiles 兼容 consumer_app_id 这种旧拼写', () => {
+  const mapped = mapQueryFiles({ response: { publishedfiledetails: [{ publishedfileid: '1', consumer_app_id: 730 }] } });
+  assert.equal(mapped.items[0].appid, 730);
+  assert.equal(mapped.items[0].appName, '');
 });
 
 test('mapQueryFiles 对无法解析的数值字段回退到 0/null 而不是 NaN', () => {
