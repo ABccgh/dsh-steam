@@ -219,11 +219,13 @@ test('steam_status 报出本机真实安装', async (t) => {
   const { ctx, tools } = makeCtx();
   await apply(ctx, {});
   const { text } = await call(tools, 'steam_status');
-  if (!text.includes('Steam 安装目录：')) {
+  const rootLine = /Steam 安装目录：(.+)/.exec(text);
+  if (rootLine === null) {
     t.skip('本机没有装 Steam');
     return;
   }
-  assert.match(text, /D:\\Program Files \(x86\)\\Steam/i);
+  // 不断言具体盘符：这个用例要在任何装了 Steam 的机器上成立。
+  assert.ok(rootLine[1].trim().length > 0);
   assert.match(text, /库根（\d+）/);
   assert.match(text, /已安装游戏：\d+ 个/);
 });
@@ -234,19 +236,31 @@ test('steam_games 列出本机已安装游戏并可过滤', async () => {
   const all = await call(tools, 'steam_games', { limit: 50 });
   assert.match(all.text, /已安装 \d+ 个游戏/);
 
-  const filtered = await call(tools, 'steam_games', { filter: 'dock' });
-  if (filtered.text.includes('已安装 0 个游戏')) return;
-  assert.match(filtered.text, /MyDockFinder/i);
+  // 过滤词从真实结果里取（第一行形如 `1234560  游戏名 — …`），
+  // 这样不需要写死任何一台机器上装了什么。
+  const firstGame = /^(\d+)\s\s(.+?)\s—/m.exec(all.text);
+  if (firstGame === null) return; // 本机一个游戏都没装
+  const [, appid, name] = firstGame;
+  const probe = name.trim().slice(0, 4);
+
+  const byName = await call(tools, 'steam_games', { filter: probe });
+  assert.match(byName.text, new RegExp(probe.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  const byAppId = await call(tools, 'steam_games', { filter: appid });
+  assert.ok(byAppId.text.includes(appid), '按 appid 精确过滤应命中该条目');
 });
 
 test('steam_game 查单个 appid，并对未安装的 appid 给出明确答复', async () => {
   const { ctx, tools } = makeCtx();
   await apply(ctx, {});
 
-  const installed = await call(tools, 'steam_game', { appid: 1787090 });
-  if (!installed.text.includes('MyDockFinder')) return; // 本机没装这个游戏时跳过
-  assert.match(installed.text, /安装状态：StateFlags=4/);
-  assert.match(installed.text, /所在库：/);
+  const all = await call(tools, 'steam_games', { limit: 1 });
+  const firstGame = /^(\d+)\s\s(.+?)\s—/m.exec(all.text);
+  if (firstGame !== null) {
+    const installed = await call(tools, 'steam_game', { appid: Number(firstGame[1]) });
+    assert.ok(installed.text.includes(firstGame[2].trim()), '详情里应出现游戏名');
+    assert.match(installed.text, /安装状态：StateFlags=\d+/);
+    assert.match(installed.text, /所在库：/);
+  }
 
   const missing = await call(tools, 'steam_game', { appid: 999999999 });
   assert.match(missing.text, /没有安装在本机/);

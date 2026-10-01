@@ -8,13 +8,13 @@ test('解析新版 libraryfolders.vdf 的嵌套结构', () => {
 {
 \t"0"
 \t{
-\t\t"path"\t\t"D:\\\\Program Files (x86)\\\\Steam"
+\t\t"path"\t\t"C:\\\\Program Files (x86)\\\\Steam"
 \t\t"label"\t\t""
-\t\t"contentid"\t\t"2909953242563285333"
+\t\t"contentid"\t\t"1111111111111111111"
 \t\t"apps"
 \t\t{
-\t\t\t"228980"\t\t"143055920"
-\t\t\t"431960"\t\t"826275581"
+\t\t\t"1234570"\t\t"234567890"
+\t\t\t"1234580"\t\t"345678901"
 \t\t}
 \t}
 }
@@ -22,10 +22,10 @@ test('解析新版 libraryfolders.vdf 的嵌套结构', () => {
   const root = parseVdf(source, { sourceName: 'libraryfolders.vdf' });
   const library = root.libraryfolders;
   assert.ok(library && typeof library === 'object');
-  assert.equal(library['0'].path, 'D:\\Program Files (x86)\\Steam');
+  assert.equal(library['0'].path, 'C:\\Program Files (x86)\\Steam');
   assert.equal(library['0'].label, '');
-  assert.equal(library['0'].apps['431960'], '826275581');
-  assert.equal(vdfInt(library['0'].apps['228980']), 143055920);
+  assert.equal(library['0'].apps['1234580'], '345678901');
+  assert.equal(vdfInt(library['0'].apps['1234570']), 234567890);
 });
 
 test('解析旧版 libraryfolders.vdf：数值键直接就是路径', () => {
@@ -40,27 +40,27 @@ test('解析旧版 libraryfolders.vdf：数值键直接就是路径', () => {
 test('解析 appmanifest 的混合类型值', () => {
   const source = `"AppState"
 {
-\t"appid"\t\t"1787090"
-\t"name"\t\t"MyDockFinder"
+\t"appid"\t\t"1234560"
+\t"name"\t\t"Sample Game"
 \t"StateFlags"\t\t"4"
-\t"LastPlayed"\t\t"1790828832"
+\t"LastPlayed"\t\t"1700003600"
 \t"InstalledDepots"
 \t{
-\t\t"1787091"
+\t\t"1234561"
 \t\t{
-\t\t\t"manifest"\t\t"5016341934966195044"
-\t\t\t"size"\t\t"176593081"
+\t\t\t"manifest"\t\t"1234567890123456789"
+\t\t\t"size"\t\t"123456789"
 \t\t}
 \t}
 \t"UserConfig"
 \t{
-\t\t"language"\t\t"schinese"
+\t\t"language"\t\t"english"
 \t}
 }`;
-  const root = parseVdf(source, { sourceName: 'appmanifest_1787090.acf' });
-  assert.equal(root.AppState.appid, '1787090');
-  assert.equal(root.AppState.InstalledDepots['1787091'].size, '176593081');
-  assert.equal(root.AppState.UserConfig.language, 'schinese');
+  const root = parseVdf(source, { sourceName: 'appmanifest_1234560.acf' });
+  assert.equal(root.AppState.appid, '1234560');
+  assert.equal(root.AppState.InstalledDepots['1234561'].size, '123456789');
+  assert.equal(root.AppState.UserConfig.language, 'english');
 });
 
 test('处理 BOM、CRLF、行注释与多余空白', () => {

@@ -66,7 +66,7 @@ test('formatBytes 处理 0、小数与非法值', () => {
   assert.equal(formatBytes(0), '0 B');
   assert.equal(formatBytes(1023), '1023 B');
   assert.equal(formatBytes(1024), '1.00 KiB');
-  assert.equal(formatBytes(176593081), '168.4 MiB');
+  assert.equal(formatBytes(123456789), '117.7 MiB');
   assert.equal(formatBytes(-1), '未知');
   assert.equal(formatBytes(Number.NaN), '未知');
 });
@@ -74,19 +74,19 @@ test('formatBytes 处理 0、小数与非法值', () => {
 test('formatUnixSeconds 把 0 与非法值说成「从未」', () => {
   assert.equal(formatUnixSeconds(0), '从未');
   assert.equal(formatUnixSeconds(Number.NaN), '从未');
-  assert.equal(formatUnixSeconds(1790828832), '2026-10-01T04:27:12Z');
+  assert.equal(formatUnixSeconds(1700000000), '2023-11-14T22:13:20Z');
 });
 
-test('readAppManifest 读出真实 acf 的关键字段', () => {
-  const manifest = readAppManifest(path.join(fixtures, 'appmanifest_1787090.acf'));
-  assert.equal(manifest.appid, 1787090);
-  assert.equal(manifest.name, 'MyDockFinder');
-  assert.equal(manifest.installDir, 'MyDockFinder');
-  assert.equal(manifest.sizeBytes, 176593081);
-  assert.equal(manifest.buildId, '25525855');
+test('readAppManifest 读出 acf 的关键字段', () => {
+  const manifest = readAppManifest(path.join(fixtures, 'appmanifest_1234560.acf'));
+  assert.equal(manifest.appid, 1234560);
+  assert.equal(manifest.name, 'Sample Game');
+  assert.equal(manifest.installDir, 'SampleGame');
+  assert.equal(manifest.sizeBytes, 123456789);
+  assert.equal(manifest.buildId, '12345678');
   assert.equal(manifest.stateFlags, 4);
   assert.deepEqual(manifest.stateLabels, ['已完整安装']);
-  assert.equal(manifest.language, 'schinese');
+  assert.equal(manifest.language, 'english');
   assert.ok(manifest.lastPlayed > 0);
 });
 
@@ -106,7 +106,7 @@ test('resolveLibraryRoots 读新版格式，并把 Steam 根目录也算作一�
       assert.ok(vdfFile?.endsWith(path.join('config', 'libraryfolders.vdf')));
       assert.deepEqual(
         libraries.map((entry) => entry.path),
-        [root, 'D:\\Program Files (x86)\\Steam'],
+        [root, 'C:\\Program Files (x86)\\Steam'],
       );
       assert.equal(libraries[1].source, 'libraryfolders.vdf');
     },

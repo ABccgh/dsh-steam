@@ -20,19 +20,19 @@ import {
 } from '../lib/webapi.js';
 
 test('looksLikeSteamId64 只接受 17 位数字', () => {
-  assert.equal(looksLikeSteamId64('76561199151703735'), true);
+  assert.equal(looksLikeSteamId64('76561190000000000'), true);
   assert.equal(looksLikeSteamId64('7656119915170373'), false);
-  assert.equal(looksLikeSteamId64('765611991517037350'), false);
+  assert.equal(looksLikeSteamId64('765611900000000000'), false);
   assert.equal(looksLikeSteamId64('7656119915170373a'), false);
 });
 
 test('normalizeSteamIdInput 认 SteamID64、vanity 与主页链接', () => {
-  assert.deepEqual(normalizeSteamIdInput('76561199151703735'), { kind: 'steamid64', value: '76561199151703735' });
+  assert.deepEqual(normalizeSteamIdInput('76561190000000000'), { kind: 'steamid64', value: '76561190000000000' });
   assert.deepEqual(normalizeSteamIdInput('  gaben  '), { kind: 'vanity', value: 'gaben' });
   assert.deepEqual(normalizeSteamIdInput('https://steamcommunity.com/id/gaben/'), { kind: 'vanity', value: 'gaben' });
-  assert.deepEqual(normalizeSteamIdInput('https://steamcommunity.com/profiles/76561199151703735'), {
+  assert.deepEqual(normalizeSteamIdInput('https://steamcommunity.com/profiles/76561190000000000'), {
     kind: 'steamid64',
-    value: '76561199151703735',
+    value: '76561190000000000',
   });
   assert.equal(normalizeSteamIdInput('').kind, 'invalid');
   assert.equal(normalizeSteamIdInput('a'.repeat(200)).kind, 'invalid');
@@ -52,10 +52,10 @@ test('URL 构造把 key 与参数放进 query', () => {
   assert.equal(new URL(recentlyPlayedUrl('KEY', '99', 0)).searchParams.get('count'), null);
   assert.equal(new URL(playerAchievementsUrl('KEY', '99', 431960)).searchParams.get('appid'), '431960');
 
-  const files = new URL(queryFilesUrl('KEY', { appid: 1158310, searchText: ' 法理征服 ', queryType: 'rankedByTotalUniqueSubscriptions', page: 2 }));
+  const files = new URL(queryFilesUrl('KEY', { appid: 1158310, searchText: '  Sample Item  ', queryType: 'rankedByTotalUniqueSubscriptions', page: 2 }));
   assert.equal(files.pathname, '/IPublishedFileService/QueryFiles/v1/');
   assert.equal(files.searchParams.get('appid'), '1158310');
-  assert.equal(files.searchParams.get('search_text'), '法理征服');
+  assert.equal(files.searchParams.get('search_text'), 'Sample Item');
   assert.equal(files.searchParams.get('query_type'), '9');
   assert.equal(files.searchParams.get('page'), '2');
   assert.equal(files.searchParams.get('return_tags'), '1');
@@ -70,7 +70,7 @@ test('mapPlayerSummaries 翻译在线状态与游戏', () => {
     response: {
       players: [
         {
-          steamid: '76561199151703735',
+          steamid: '76561190000000000',
           personaname: 'Someone',
           profileurl: 'https://steamcommunity.com/id/someone/',
           personastate: 1,
@@ -130,7 +130,7 @@ test('mapPlayerAchievements 区分「没数据」与「真的没成就」', () =
 
   const ok = mapPlayerAchievements({
     playerstats: {
-      steamID: '76561199151703735',
+      steamID: '76561190000000000',
       gameName: 'Crusader Kings III',
       achievements: [
         { apiname: 'A', achieved: 1, unlocktime: 1790000000, name: '首个成就', description: '解锁' },
@@ -146,9 +146,9 @@ test('mapPlayerAchievements 区分「没数据」与「真的没成就」', () =
 });
 
 test('mapResolveVanity 只接受 success:1 且形如 SteamID64 的结果', () => {
-  assert.deepEqual(mapResolveVanity({ response: { success: 1, steamid: '76561199151703735' } }), {
+  assert.deepEqual(mapResolveVanity({ response: { success: 1, steamid: '76561190000000000' } }), {
     ok: true,
-    steamId64: '76561199151703735',
+    steamId64: '76561190000000000',
   });
   assert.equal(mapResolveVanity({ response: { success: 42, message: 'No match' } }).ok, false);
   assert.equal(mapResolveVanity({ response: { success: 1, steamid: 'not-an-id' } }).ok, false);
@@ -161,8 +161,8 @@ test('mapQueryFiles 整理创意工坊条目', () => {
       total: 1,
       publishedfiledetails: [
         {
-          publishedfileid: '3803258931',
-          title: '法理征服 / De Jure Conquest',
+          publishedfileid: '1111111111',
+          title: 'Sample Workshop Item',
           consumer_appid: 1158310,
           app_name: 'Crusader Kings III',
           file_size: '123456',
@@ -177,7 +177,7 @@ test('mapQueryFiles 整理创意工坊条目', () => {
     },
   });
   assert.equal(mapped.total, 1);
-  assert.equal(mapped.items[0].title, '法理征服 / De Jure Conquest');
+  assert.equal(mapped.items[0].title, 'Sample Workshop Item');
   assert.deepEqual(mapped.items[0].tags, ['游戏玩法']);
   // file_size 是 uint64，Steam 会把它序列化成字符串；这里必须转成数字，否则工具永远显示"大小未知"。
   assert.equal(mapped.items[0].fileSize, 123456);

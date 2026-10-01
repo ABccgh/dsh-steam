@@ -2,17 +2,17 @@
 {
 	"0"
 	{
-		"path"		"D:\\Program Files (x86)\\Steam"
+		"path"		"C:\\Program Files (x86)\\Steam"
 		"label"		""
-		"contentid"		"2909953242563285333"
+		"contentid"		"1111111111111111111"
 		"totalsize"		"0"
-		"update_clean_bytes_tally"		"1145924582"
-		"time_last_update_verified"		"1790828750"
+		"update_clean_bytes_tally"		"1000000000"
+		"time_last_update_verified"		"1700000000"
 		"apps"
 		{
-			"228980"		"143055920"
-			"431960"		"826275581"
-			"1787090"		"176593081"
+			"1234560"		"123456789"
+			"1234570"		"234567890"
+			"1234580"		"345678901"
 		}
 	}
 }

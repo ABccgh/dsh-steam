@@ -1,0 +1,45 @@
+"AppState"
+{
+	"appid"		"1234560"
+	"Universe"		"1"
+	"name"		"Sample Game"
+	"StateFlags"		"4"
+	"installdir"		"SampleGame"
+	"LastUpdated"		"1700000000"
+	"LastPlayed"		"1700003600"
+	"SizeOnDisk"		"123456789"
+	"StagingSize"		"0"
+	"buildid"		"12345678"
+	"LastOwner"		"76561190000000000"
+	"DownloadType"		"1"
+	"UpdateResult"		"0"
+	"BytesToDownload"		"98765432"
+	"BytesDownloaded"		"98765432"
+	"BytesToStage"		"123456789"
+	"BytesStaged"		"123456789"
+	"TargetBuildID"		"12345678"
+	"AutoUpdateBehavior"		"0"
+	"AllowOtherDownloadsWhileRunning"		"0"
+	"ScheduledAutoUpdate"		"0"
+	"InstalledDepots"
+	{
+		"1234561"
+		{
+			"manifest"		"1234567890123456789"
+			"size"		"123456789"
+		}
+	}
+	"SharedDepots"
+	{
+		"1234569"		"1234568"
+		"1234570"		"1234568"
+	}
+	"UserConfig"
+	{
+		"language"		"english"
+	}
+	"MountedConfig"
+	{
+		"language"		"english"
+	}
+}

@@ -1,19 +1,23 @@
 # dsh-steam — Steam tools for DeepSeek Harness
 #
-# 本文件既是 bundle 的 patch 层，也是这份插件的**运行时配置**：
-# 安装副本（C:\Users\11210\dsh-bundles\steam\cordis.patch.yml）里的这份内容会被
-# profile 直接读取，改完即生效（有 HMR 时不必重启）。
+# 本文件既是 bundle 的 patch 层，也是这份插件的**运行时配置**。
+# 真正被读取的是**安装副本**里的这一份（%USERPROFILE%\dsh-bundles\steam\cordis.patch.yml），
+# 不是仓库里的这份——改配置要改副本。
+#
+# 改完需要**手动重载**（插件页把 steam 关开一次）：实测副本里的 patch 变更不会被 HMR
+# 自动拾取。只改配置值不需要重启应用。
 #
 # 密钥不写在这里。Steam Web API Key 走凭据服务，按下面的优先级解析：
-#   1. 启动环境变量（必须在启动 DSH 前设好）
-#   2. C:\Users\11210\.dsh\.credentials.yaml
+#   1. 启动环境变量（最高优先级，无条件生效）—— setx STEAM_API_KEY "你的KEY"
+#   2. $DSH_HOME\.credentials.yaml
 #   3. <启动目录>\.env
-#   4. C:\Users\11210\.dsh\.env          ← 最省事的一种，改完自动重载
-# 也就是在 C:\Users\11210\.dsh\.env 里写一行：
-#   STEAM_API_KEY=你的KEY
+#   4. $DSH_HOME\.env
+# 第 4 条是在启动时读一次的，且桌面版只在 cwd ≠ $DSH_HOME 时才把它当 user-env 层读，
+# 所以它并不总是生效；不确定时看 steam_status 最后一行的「已配置／未配置」。
 #
 # webApi 取值：
-#   auto（默认）—— 激活时能解析到 Key 才注册 5 个需要 Key 的工具
+#   auto（默认）—— 能解析到 Key 才注册 5 个需要 Key 的工具；激活时凭据服务若尚未就绪，
+#                  插件会自动重试补注册，steam_status 也会顺手自愈一次
 #   on          —— 总是注册；没有 Key 时调用会返回可执行的修复提示
 #   off         —— 永不注册
 - insert:
