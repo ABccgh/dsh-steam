@@ -20,6 +20,12 @@
 #                  插件会自动重试补注册，steam_status 也会顺手自愈一次
 #   on          —— 总是注册；没有 Key 时调用会返回可执行的修复提示
 #   off         —— 永不注册
+#
+# trustSystemCa（auto/always/never）控制是否把系统根证书并入 Node 的默认 CA 列表，
+# 用来兼容 Steam++ / Watt Toolkit 这类加速器的自签证书；auto 只在遇到证书错误时并入一次。
+#
+# 0.2.0 起评测走 api.steampowered.com/IUserReviewsService/GetAppReviews（免 Key）：
+# 商店旧端点 store.steampowered.com/appreviews 已被 Valve 于 2026-10-22 停用。
 - insert:
     - id: steam
       name: '@local/steam'
@@ -28,6 +34,7 @@
         extraLibraryPaths: []
         webApi: auto
         apiKeyEnv: STEAM_API_KEY
+        trustSystemCa: auto
         storeCountry: cn
         storeLanguage: schinese
         requestTimeoutMs: 15000

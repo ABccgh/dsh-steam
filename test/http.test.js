@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import net from 'node:net';
 import tls from 'node:tls';
 
@@ -10,6 +11,7 @@ import {
   fetchJson,
   findErrorCode,
   isCertificateError,
+  redactUrl,
   systemCaStatus,
 } from '../lib/http.js';
 
@@ -78,6 +80,36 @@ test('explainHttpStatus 给出可执行建议', () => {
   assert.match(explainHttpStatus(401), /Key/);
   assert.match(explainHttpStatus(429), /限流/);
   assert.equal(explainHttpStatus(200), '');
+});
+
+test('redactUrl 不把 API Key 带进日志或错误', () => {
+  const redacted = redactUrl('https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=SECRET&steamids=1');
+  assert.equal(redacted.includes('SECRET'), false);
+  assert.match(redacted, /key=\*\*\*/);
+  assert.equal(redactUrl('not a url'), 'not a url');
+});
+
+test('fetchJson 把「被重定向到别的路径」说清楚，而不是报 JSON 解析失败', async () => {
+  const server = http.createServer((request, response) => {
+    if (request.url === '/api/storesearch/') {
+      response.writeHead(302, { Location: '/' });
+      response.end();
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'text/html; charset=UTF-8' });
+    response.end('<!DOCTYPE html><html><body>store home</body></html>');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  try {
+    const result = await fetchJson(`http://127.0.0.1:${port}/api/storesearch/`, { timeoutMs: 3000, retries: 0 });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /重定向/);
+    assert.match(result.hint ?? '', /迁移|不可用/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('createHttpClient 把信任策略传给每一次请求', async () => {

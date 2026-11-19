@@ -10,6 +10,7 @@ import {
   mapQueryFiles,
   mapRecentlyPlayed,
   mapResolveVanity,
+  mapSchemaAchievements,
   normalizeSteamIdInput,
   ownedGamesUrl,
   playerAchievementsUrl,
@@ -17,6 +18,7 @@ import {
   queryFilesUrl,
   recentlyPlayedUrl,
   resolveVanityUrl,
+  schemaForGameUrl,
 } from '../lib/webapi.js';
 
 test('looksLikeSteamId64 只接受 17 位数字', () => {
@@ -63,6 +65,35 @@ test('URL 构造把 key 与参数放进 query', () => {
 
 test('queryFilesUrl 对未知 queryType 退回默认排序', () => {
   assert.equal(new URL(queryFilesUrl('KEY', { queryType: 'nonsense' })).searchParams.get('query_type'), '0');
+});
+
+test('schemaForGameUrl 带 key、appid 与语言', () => {
+  const url = new URL(schemaForGameUrl('KEY', 1158310, 'schinese'));
+  assert.equal(url.pathname, '/ISteamUserStats/GetSchemaForGame/v2/');
+  assert.equal(url.searchParams.get('key'), 'KEY');
+  assert.equal(url.searchParams.get('appid'), '1158310');
+  assert.equal(url.searchParams.get('l'), 'schinese');
+});
+
+test('mapSchemaAchievements 把内部 apiname 映射到本地化成就名', () => {
+  const mapped = mapSchemaAchievements({
+    game: {
+      availableGameStats: {
+        achievements: [
+          { name: 'A', displayName: '首个成就', description: '解锁', hidden: 0 },
+          { name: 'B', displayName: '隐藏成就', hidden: 1 },
+          { name: '', displayName: '坏数据' },
+          null,
+        ],
+      },
+    },
+  });
+  assert.equal(mapped.size, 2);
+  assert.equal(mapped.get('A').displayName, '首个成就');
+  assert.equal(mapped.get('B').hidden, true);
+  assert.equal(mapped.get('A').hidden, false);
+  assert.equal(mapSchemaAchievements({}).size, 0);
+  assert.equal(mapSchemaAchievements(null).size, 0);
 });
 
 test('mapPlayerSummaries 翻译在线状态与游戏', () => {

@@ -32,9 +32,29 @@ test('URL 构造带上地区与语言参数', () => {
   assert.equal(details.searchParams.get('cc'), 'cn');
 
   const reviews = new URL(reviewsUrl(431960, { numPerPage: 5 }));
-  assert.equal(reviews.pathname, '/appreviews/431960');
-  assert.equal(reviews.searchParams.get('json'), '1');
-  assert.equal(reviews.searchParams.get('num_per_page'), '5');
+  assert.equal(reviews.origin, 'https://api.steampowered.com');
+  assert.equal(reviews.pathname, '/IUserReviewsService/GetAppReviews/v1/');
+  const reviewInput = JSON.parse(reviews.searchParams.get('input_json'));
+  assert.equal(reviewInput.appid, 431960);
+  assert.equal(reviewInput.num_per_page, 5);
+  assert.deepEqual(reviewInput.languages, ['all'], '默认看全部语言');
+  assert.equal(reviewInput.display_language, 'schinese');
+  assert.equal(reviewInput.filter, 0, '默认按 helpful 排序');
+  assert.equal(reviewInput.day_range, 0, '0 表示不限制时间窗，汇总才是全时段数字');
+
+  const filtered = JSON.parse(
+    new URL(
+      reviewsUrl(431960, { numPerPage: 3, languages: ['schinese'], displayLanguage: 'english', filter: 'recent', reviewType: 'negative' }),
+    ).searchParams.get('input_json'),
+  );
+  assert.deepEqual(filtered.languages, ['schinese']);
+  assert.equal(filtered.display_language, 'english');
+  assert.equal(filtered.filter, 1, 'recent → 1');
+  assert.equal(filtered.review_type, 2, 'negative → 2');
+  assert.equal(filtered.num_per_page, 3);
+
+  // 旧商店端点已停用（2026-10-22），任何路径里都不该再出现 /appreviews/。
+  assert.equal(new URL(reviewsUrl(431960)).pathname.includes('/appreviews/'), false);
 
   assert.equal(new URL(currentPlayersUrl(431960)).hostname, 'api.steampowered.com');
   assert.equal(new URL(globalAchievementsUrl(431960)).searchParams.get('gameid'), '431960');
@@ -119,32 +139,66 @@ test('pickAppDetails 整理价格与发行信息', () => {
   assert.deepEqual(app.categories, ['Steam 创意工坊', 'Steam 成就'], '去重同时保持原顺序');
 });
 
-test('mapReviews 计算好评率并截断样本', () => {
+test('mapReviews 处理 IUserReviewsService 的新形状', () => {
   const mapped = mapReviews(
     {
-      success: 1,
-      query_summary: { total_reviews: 1000, total_positive: 900, total_negative: 100, review_score: 8, review_score_desc: '特别好评' },
-      reviews: Array.from({ length: 9 }, (unused, index) => ({
-        voted_up: index % 2 === 0,
-        review: `review ${index}`,
-        author: { playtime_forever: 60 + index },
-        votes_up: index,
-        timestamp_created: 1700000000 + index,
-      })),
+      response: {
+        query_summary: {
+          num_reviews: 3,
+          review_score: 8,
+          review_score_desc: '特别好评',
+          total_positive: 900,
+          total_negative: 100,
+          total_reviews: 1000,
+        },
+        reviews: Array.from({ length: 9 }, (unused, index) => ({
+          voted_up: index % 2 === 0,
+          review: `review ${index}`,
+          language: 'schinese',
+          author: { playtime_at_review: 60 + index, playtime_forever: 9999 },
+          votes_up: index,
+          timestamp_created: 1700000000 + index,
+          refunded: index === 0,
+          primarily_steam_deck: index === 1,
+        })),
+        cursor: 'abc',
+      },
     },
     { sampleLimit: 3 },
   );
-  assert.equal(mapped.success, true);
+  assert.equal(mapped.available, true);
   assert.equal(mapped.summary.positivePercent, 90);
   assert.equal(mapped.summary.description, '特别好评');
+  assert.equal(mapped.summary.total, 1000);
   assert.equal(mapped.samples.length, 3);
+  assert.equal(mapped.samples[0].playtimeMinutes, 60, '优先用 playtime_at_review');
+  assert.equal(mapped.samples[0].refunded, true);
+  assert.equal(mapped.samples[1].steamDeck, true);
+  assert.equal(mapped.samples[0].language, 'schinese');
+  assert.equal(mapped.cursor, 'abc');
 });
 
-test('mapReviews 在缺 query_summary 时不崩且不瞎算好评率', () => {
-  const mapped = mapReviews({ success: 1 });
-  assert.equal(mapped.summary.total, 0);
-  assert.equal(mapped.summary.positivePercent, null);
-  assert.equal(mapReviews(undefined).samples.length, 0);
+test('mapReviews 把空响应当成「没有数据」而不是 0 条好评', () => {
+  const empty = mapReviews({ response: {} });
+  assert.equal(empty.available, false);
+  assert.equal(empty.summary, null);
+  assert.deepEqual(empty.samples, []);
+
+  assert.equal(mapReviews(undefined).available, false);
+  assert.equal(mapReviews(null).available, false);
+  assert.equal(mapReviews({}).available, false);
+});
+
+test('mapReviews 在缺 query_summary 时保留样本但不瞎算好评率', () => {
+  const mapped = mapReviews({
+    response: {
+      reviews: [{ voted_up: true, review: 'only sample', author: { playtime_forever: 30 } }],
+    },
+  });
+  assert.equal(mapped.available, true);
+  assert.equal(mapped.summary, null);
+  assert.equal(mapped.samples.length, 1);
+  assert.equal(mapped.samples[0].playtimeMinutes, 30, '没有 playtime_at_review 时回退 playtime_forever');
 });
 
 test('mapCurrentPlayers 与 mapGlobalAchievements 的边界', () => {
@@ -182,6 +236,7 @@ test('mapGlobalAchievements 兼容 v1 把数组再包一层的形状', () => {
 test('explainHttpStatus 给出可执行建议', () => {
   assert.match(explainHttpStatus(401), /Key/);
   assert.match(explainHttpStatus(429), /限流/);
+  assert.match(explainHttpStatus(429), /匿名/);
   assert.equal(explainHttpStatus(200), '');
 });
 
@@ -209,4 +264,12 @@ test('活体：真实商店端点', { skip: !LIVE }, async () => {
   const search = await store.search('Crusader Kings');
   assert.equal(search.ok, true);
   assert.ok(mapStoreSearch(search.data).items.length > 0);
+
+  // 评测：旧 /appreviews 已于 2026-10-22 停用，这里验证新接口真的能返回汇总。
+  const reviews = await store.reviews(431960, { numPerPage: 3, languages: ['all'], displayLanguage: 'schinese' });
+  assert.equal(reviews.ok, true, `GetAppReviews 失败：${reviews.error ?? ''}`);
+  const mapped = mapReviews(reviews.data, { sampleLimit: 2 });
+  assert.equal(mapped.available, true);
+  assert.ok(mapped.summary !== null && mapped.summary.total > 0);
+  assert.ok(mapped.samples.length > 0);
 });

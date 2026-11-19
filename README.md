@@ -1,10 +1,12 @@
 # dsh-steam
 
 把 Steam 接进 [DeepSeek Harness](https://github.com/deepseek-ai)（DSH）：装成一个 host 侧
-Cordis 插件 bundle 之后，模型获得 14 个 `steam_*` 只读工具——读**本机 Steam 库**、查**商店与公开数据**、
-以及通过**官方 Steam Web API** 查账号数据。
+Cordis 插件 bundle 之后，模型获得 14 个 `steam_*` 只读工具——读**本机 Steam 库**、查**商店与公开数据**
+（评测走 Valve 新的 `IUserReviewsService`，免 Key）、以及通过**官方 Steam Web API** 查账号数据。
 
 所有工具都是只读的：不启动游戏、不改任何 Steam 文件、不写配置文件。
+
+当前版本 **0.2.0**（2026-11）：迁移评测接口、时间改本机时区、成就名可本地化、错误信息更可执行。
 
 ## 14 个工具
 
@@ -12,7 +14,7 @@ Cordis 插件 bundle 之后，模型获得 14 个 `steam_*` 只读工具——�
 
 | 工具 | 作用 |
 |---|---|
-| `steam_status` | 安装目录、客户端是否在运行、所有库根及占用、本机账号、已安装游戏数与总占用、本地创意工坊内容数 |
+| `steam_status` | 安装目录、客户端是否在运行（含 PID）、所有库根及占用、本机账号、已安装游戏数与总占用、本地创意工坊内容数、插件版本与系统根证书状态 |
 | `steam_games` | 列出已安装游戏（占用、最后游玩、安装状态），支持按名称/appid 过滤与排序 |
 | `steam_game` | 按 appid 查单个游戏的本地安装详情（安装目录、buildid、StateFlags、语言） |
 | `steam_library_health` | 库体检：安装目录缺失、多余目录、跨库重复 appid、损坏的 appmanifest |
@@ -22,14 +24,14 @@ Cordis 插件 bundle 之后，模型获得 14 个 `steam_*` 只读工具——�
 `config/libraryfolders.vdf`（也支持旧版 `steamapps/libraryfolders.vdf`）、
 `steamapps/appmanifest_*.acf`、`config/loginusers.vdf`、`steamapps/workshop/content/`。
 
-### 公开层（4 个，不联网失败时给建议、不需要 API Key）
+### 公开层（4 个，免 Key；失败时给可执行建议）
 
 | 工具 | 作用 |
 |---|---|
-| `steam_search` | 商店搜索（appid、名称、价格、平台） |
+| `steam_search` | 商店搜索（appid、名称、价格、平台；Steam 接口单次最多 10 条） |
 | `steam_store_app` | 商店详情（价格、发行日期、开发商、类型标签、Metacritic、简介） |
-| `steam_reviews` | 用户评测汇总（好评率）与少量样本 |
-| `steam_app_stats` | 当前在线人数 + 全球成就达成率 |
+| `steam_reviews` | 用户评测汇总（好评率、评级描述）与样本；可按语言、情感、排序筛选 |
+| `steam_app_stats` | 当前在线人数 + 全球成就达成率；配了 Key 时显示本地化成就名 |
 
 ### 密钥层（5 个，需要 `STEAM_API_KEY`）
 
@@ -43,6 +45,20 @@ Cordis 插件 bundle 之后，模型获得 14 个 `steam_*` 只读工具——�
 
 不传 `steamId` 时默认用本机 Steam 登录的账号；也可以传 17 位 SteamID64、vanity 名或
 `steamcommunity.com` 主页链接。
+
+### 评测接口（2026-10-22 变更）
+
+Valve 已停用 `store.steampowered.com/appreviews/<appid>?json=1`：旧地址现在一律 302 到商店首页，
+跟随重定向只能拿到 HTML。dsh-steam 0.2.0 起改用：
+
+```
+GET https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/?input_json=...
+```
+
+- 免 Key；匿名调用共享较低配额，Steam 自己会缓存约 10 分钟，插件也做了同量级缓存；
+- `input_json` 里 `filter` 是数字枚举（helpful/recent/updated/funny），`review_type` 是 all/positive/negative；
+- `day_range: 0` 表示全时段，汇总里的 `total_reviews` 才是全时段数字；
+- 无效/下架 appid 返回 `{"response":{}}`，工具按「读不到评测」降级而不是抛错。
 
 ## 安装
 
@@ -89,7 +105,7 @@ Cordis 插件 bundle 之后，模型获得 14 个 `steam_*` 只读工具——�
 | `trustSystemCa` | `auto` | 见下面的「加速器与证书」 |
 | `storeCountry` / `storeLanguage` | `cn` / `schinese` | 商店端点地区与语言 |
 | `requestTimeoutMs` | `15000` | 单次 HTTP 超时 |
-| `maxListedApps` | `200` | 列表类工具一次最多返回多少条 |
+| `maxListedApps` | `200` | 列表类工具一次最多返回多少条；创意工坊搜索受接口单页上限限制，实际最多 100 |
 
 ## API Key
 
@@ -97,28 +113,35 @@ Cordis 插件 bundle 之后，模型获得 14 个 `steam_*` 只读工具——�
 
 凭据按 DSH 自己的优先级解析，从高到低：
 
-1. **启动 DSH 前的环境变量** ← 最稳，无条件生效；
-2. `$DSH_HOME\.credentials.yaml`；
-3. 启动目录下的 `.env`；
-4. `$DSH_HOME\.env`。
+1. **启动 DSH 前的环境变量** ← 最稳，无条件生效（需重启 DSH）；
+2. `$DSH_HOME\.credentials.yaml` ← 推荐日常用：凭据服务每次调用重新解析，保存后通常立刻生效；
+3. 启动目录下的 `.env` / `$DSH_HOME\.env` ← 只在启动时读一次，桌面版还只在 cwd ≠ `$DSH_HOME`
+   时才把 `$DSH_HOME\.env` 当 user-env 层读，最容易「写了不生效」。
 
-**推荐用第 1 条**：
+凭据文件是 YAML，写法：
+
+```yaml
+STEAM_API_KEY: 你的KEY
+```
+
+或者用环境变量（之后要重启 DSH）：
 
 ```powershell
 setx STEAM_API_KEY "你的KEY"
 ```
 
-然后重启 DSH。环境变量是唯一不受工作目录影响的一层。
-
-第 4 条要留意两点：它是在**启动时**读一次的（改完必须重启），而且桌面版只在
-进程工作目录 ≠ `$DSH_HOME` 时才会把它当作 `user-env` 层读取——所以它并不总是生效。
-`steam_status` 最后一行会直接告诉你当前是「已配置」还是「未配置」，不用猜。
+`steam_status` 会直接告诉你「已配置／未配置」以及 5 个密钥层工具是否已注册，不用猜。
 
 密钥层的 5 个工具在 Key 可解析后自动出现；`auto` 模式下若激活时凭据还没就绪，
 插件会自动重试补注册，`steam_status` 也会顺手自愈一次。
 
-工具每次调用都会重新解析 Key，不缓存——所以刚保存就能用上。没配 Key 时调用密钥层工具
-（`webApi: on` 的情况下）会返回一段「去哪儿写、怎么生效」的完整指引，而不是一句 missing key。
+工具每次调用都会重新向凭据服务解析 Key，不缓存——所以刚写进 `.credentials.yaml` 通常就能用上；
+环境变量与 `.env` 是启动时定格的，改完要重启。
+
+## 时间显示
+
+0.2.0 起所有时间都渲染成本机时区并带偏移量，例如 `2026-11-19 22:34 +08:00`。
+之前是 UTC ISO 字符串（`2026-11-19T14:34:52Z`），UTC+8 的读者每次都要心算。
 
 ## 加速器与证书（重要）
 
@@ -145,8 +168,12 @@ Node 的默认 CA 列表**，然后重试一次。这等于「信任操作系统
 | `没有找到本机 Steam 安装` | 在 `cordis.patch.yml` 里把 `steamPath` 设成绝对路径 |
 | `连接被拒绝：本机 hosts 可能把该域名指向了 127.0.0.1…` | 加速器没在运行。启动它，或关掉 hosts 加速模式 |
 | `TLS 证书链无法验证…` | 见上一节；确认 `trustSystemCa` 不是 `never` |
-| 密钥层工具不出现 | `webApi` 是 `off`，或凭据里没有 `STEAM_API_KEY`。先看 `steam_status`：它最后一行直接给出「已配置／未配置」，不用猜。`webApi: on` 可强制注册，调用时会给出指引 |
-| 写了 `$DSH_HOME/.env` 还是不出现 | 桌面版只在 `cwd !== $DSH_HOME` 时才把 `$DSH_HOME/.env` 当 `user-env` 层读取。改用**启动环境变量**最稳：`setx STEAM_API_KEY "你的KEY"` 后重启 DSH——这一层是无条件读取的最高优先级 |
+| `请求被重定向到 https://store.steampowered.com/` | 旧评测端点已停用（2026-10-22），或 Steam 又迁移了接口。确认插件是 0.2.0+；再变时按 `IUserReviewsService` 文档更新 URL |
+| `HTTP 429` / `Steam 限流…` | 匿名调用共享较低配额，Steam 自己缓存约 10 分钟；等一会再试，或配置 API Key |
+| `steam_app_stats` 显示 `ce3_07_…` 这类名字 | 没配 Key 时只能拿到 Steam 内部 API 名。配 Key 后会自动换成中文成就名 |
+| `steam_workshop_search` 超时 | 接口单页上限 100，工具会把 200 夹到 100；仍超时就减小 `limit` 或加 `searchText` |
+| 密钥层工具不出现 | `webApi` 是 `off`，或凭据里没有 `STEAM_API_KEY`。先看 `steam_status`：它会给出「已配置／未配置」以及工具是否已注册。`webApi: on` 可强制注册，调用时会给出指引 |
+| 写了 `$DSH_HOME/.env` 还是不出现 | 桌面版只在 `cwd !== $DSH_HOME` 时才把 `$DSH_HOME/.env` 当 `user-env` 层读取。改用 `$DSH_HOME\.credentials.yaml`（通常无需重启），或**启动环境变量**：`setx STEAM_API_KEY "你的KEY"` 后重启 DSH |
 | `拿不到 … 的游戏列表：该账号的「游戏详情」隐私设置不是公开` | 在 Steam 隐私设置里把「游戏详情」设为公开 |
 | 改了仓库代码但线上没变 | 安装读的是副本（`%USERPROFILE%\dsh-bundles\steam`），而且要**重启 DSH** 才会生效：Host 进程会缓存已加载的 ESM 模块，插件页关开、HMR 重载都只重新装配配置，不会重新读代码。改完先 robocopy，再重启应用。只改 `cordis.patch.yml` 的配置值则不需要重启 |
 | DSH 升级后插件装不上 | 已无 `peerDependencies`，正常升级不会受影响；如果安装仍被拒，看管理器给出的诊断 |
@@ -156,8 +183,8 @@ Node 的默认 CA 列表**，然后重试一次。这等于「信任操作系统
 需要 Node 24（DSH 自带的那个就行：`resources\runtime\primary-runtime\dependencies\node\bin\node.exe`）。
 
 ```powershell
-node --test "test/*.test.js"                        # 92 个用例通过，2 个联网用例跳过（共 94）
-$env:DSH_STEAM_LIVE=1; node --test "test/*.test.js"  # 94 个全跑，含打真实 Steam 端点的活体用例
+node --test "test/*.test.js"                        # 102 个用例通过，2 个联网用例跳过（共 104）
+$env:DSH_STEAM_LIVE=1; node --test "test/*.test.js"  # 104 个全跑，含打真实 Steam 端点的活体用例
 ```
 
 插件是**零外部依赖**的（只用 `node:*` 和自己的模块），所以测试像普通包一样直接 import，
@@ -183,6 +210,20 @@ JSON Schema 并补上参数校验，插件因此完全不依赖 DSH 内部模块
 
 同理不导出 `Config`：cordis 的 `resolveConfig` 在插件没有 `Config` 时**原样透传**配置对象，
 默认值与非法值处理由 `lib/index.js` 的 `normalizeConfig` 负责。
+
+## 变更记录（0.2.0，2026-11）
+
+- **评测迁移**：`steam_reviews` 改用 `api.steampowered.com/IUserReviewsService/GetAppReviews/v1`；
+  商店旧端点 `/appreviews` 已于 2026-10-22 停用（现在 302 到首页）。新增 `language` / `sort` / `sentiment`
+  三个可选参数，10 分钟进程内缓存，无效 appid 的空响应降级为可读说明。
+- **成就名本地化**：`steam_app_stats` 在配了 Key 时用 `GetSchemaForGame` 换成中文成就名；
+  没配 Key 时仍可用，但会明确说明显示的是 Steam 内部 API 名。
+- **工坊上限**：`steam_workshop_search` 的 `limit` 上限从 200 收到 100（实测 200 会 15 秒超时）。
+- **时间可读**：所有时间改成本机时区 + 偏移量（`2026-11-19 22:34 +08:00`）。
+- **状态诊断**：`steam_status` 增加插件版本、生效配置摘要、Steam 客户端 PID、系统根证书合并状态。
+- **错误可执行**：单独识别「被重定向到别处」，429 给出限流建议，JSON 解析失败带 HTTP 状态与最终 URL，
+  URL 里的 `key=` 脱敏。
+- **本地工坊**：`steam_workshop_local` 显示所属游戏名；截断提示按工具可用参数生成。
 
 ## 卸载
 

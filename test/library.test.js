@@ -9,7 +9,9 @@ import {
   describeStateFlags,
   directorySize,
   formatBytes,
+  formatUnixLocal,
   formatUnixSeconds,
+  parseTasklistSteamPid,
   readAppManifest,
   scanSteamLibrary,
 } from '../lib/library.js';
@@ -75,6 +77,26 @@ test('formatUnixSeconds 把 0 与非法值说成「从未」', () => {
   assert.equal(formatUnixSeconds(0), '从未');
   assert.equal(formatUnixSeconds(Number.NaN), '从未');
   assert.equal(formatUnixSeconds(1700000000), '2023-11-14T22:13:20Z');
+});
+
+test('formatUnixLocal 用本机时区并带偏移量', () => {
+  assert.equal(formatUnixLocal(0), '从未');
+  assert.equal(formatUnixLocal(Number.NaN), '从未');
+  const date = new Date(1700000000 * 1000);
+  const pad = (value) => String(value).padStart(2, '0');
+  const offset = -date.getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  const absolute = Math.abs(offset);
+  const expected = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} ${sign}${pad(Math.floor(absolute / 60))}:${pad(absolute % 60)}`;
+  assert.equal(formatUnixLocal(1700000000), expected);
+  assert.match(formatUnixLocal(1700000000), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}$/);
+});
+
+test('parseTasklistSteamPid 从 CSV 与表格输出里取 PID', () => {
+  assert.equal(parseTasklistSteamPid('"steam.exe","18540","Console","3","269,276 K"\r\n'), 18540);
+  assert.equal(parseTasklistSteamPid('steam.exe   18540 Console   3   269,276 K'), 18540);
+  assert.equal(parseTasklistSteamPid('INFO: No tasks are running which match the specified criteria.'), undefined);
+  assert.equal(parseTasklistSteamPid(''), undefined);
 });
 
 test('readAppManifest 读出 acf 的关键字段', () => {

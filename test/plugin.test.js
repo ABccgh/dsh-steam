@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 // 插件是零外部依赖的：这里可以像普通包一样直接 import，不需要任何解析替身。
 const { apply, name, normalizeConfig } = await import('../lib/index.js');
+const { VERSION } = await import('../lib/version.js');
 
 /** 需要真实网络时才跑的用例：`DSH_STEAM_LIVE=1 node --test`。 */
 const LIVE = process.env.DSH_STEAM_LIVE === '1';
@@ -45,6 +47,11 @@ test('插件导出 name / inject / apply，且不导出 Config（由 normalizeCo
   assert.equal(typeof apply, 'function');
   assert.deepEqual(module.inject, ['tools']);
   assert.equal('Config' in module, false, '没有 Config 时 cordis 会原样透传配置对象');
+});
+
+test('VERSION 与 package.json 一致', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(VERSION, pkg.version);
 });
 
 test('没有凭据服务时只注册 9 个不需要 Key 的工具', async () => {
@@ -143,7 +150,9 @@ test('steam_status 回报 Web API Key 的配置状态', async () => {
   const missing = await call(withoutKey.tools, 'steam_status');
   assert.match(missing.text, /Web API Key（STEAM_API_KEY）：未配置/);
   assert.match(missing.text, /不会注册/, '要说明密钥层工具为什么没出现');
-  assert.match(missing.text, /\.env/, '要给出可执行的排查路径');
+  assert.match(missing.text, /credentials\.yaml/, '要给出可执行的排查路径');
+  assert.match(missing.text, /插件：@local\/steam \d+\.\d+\.\d+/);
+  assert.match(missing.text, /系统根证书：/);
 
   const credentials = {
     async resolve(ref) {
@@ -235,6 +244,7 @@ test('steam_games 列出本机已安装游戏并可过滤', async () => {
   await apply(ctx, {});
   const all = await call(tools, 'steam_games', { limit: 50 });
   assert.match(all.text, /已安装 \d+ 个游戏/);
+  assert.match(all.text, /最后游玩 (\d{4}-\d{2}-\d{2} \d{2}:\d{2} [+-]\d{2}:\d{2}|从未)/, '时间应带本机时区偏移');
 
   // 过滤词从真实结果里取（第一行形如 `1234560  游戏名 — …`），
   // 这样不需要写死任何一台机器上装了什么。
@@ -295,12 +305,63 @@ test('steam_search / steam_store_app / steam_reviews / steam_app_stats 打真实
   const search = await call(tools, 'steam_search', { term: 'Crusader Kings', limit: 3 });
   assert.match(search.text, /商店搜索「Crusader Kings」命中 \d+ 条/);
 
-  const reviews = await call(tools, 'steam_reviews', { appid: 431960, sampleLimit: 2 });
-  assert.match(reviews.text, /好评率|还没有可读的评测/);
+  const reviews = await call(tools, 'steam_reviews', { appid: 1158310, sampleLimit: 2, language: 'schinese', sort: 'recent' });
+  assert.match(reviews.text, /好评率/);
+  assert.match(reviews.text, /样本 2 条/);
+  assert.match(reviews.text, /schinese/);
 
   const stats = await call(tools, 'steam_app_stats', { appid: 431960, achievementLimit: 3 });
   assert.match(stats.text, /当前在线/);
 
   const notFound = await call(tools, 'steam_store_app', { appid: 999999999 });
   assert.match(notFound.text, /没有返回|没有这个 appid/);
+});
+
+test('工坊上限跟接口单页上限对齐，评测/统计的新参数可被模型发现', async () => {
+  const { ctx, tools } = makeCtx();
+  await apply(ctx, { webApi: 'on' });
+
+  const workshop = tools.get('steam_workshop_search');
+  assert.match(workshop.parameters.properties.limit.description, /100/, '描述里必须写清单页上限');
+  assert.equal(workshop.parameters.properties.queryType.enum.length, 6);
+
+  const reviews = tools.get('steam_reviews');
+  assert.deepEqual(reviews.parameters.properties.sort.enum, ['helpful', 'recent', 'updated', 'funny']);
+  assert.deepEqual(reviews.parameters.properties.sentiment.enum, ['all', 'positive', 'negative']);
+  assert.match(reviews.description, /IUserReviewsService|2026-10-22/);
+
+  assert.match(tools.get('steam_app_stats').description, /本地化/);
+  assert.match(tools.get('steam_status').description, /PID/);
+  assert.match(tools.get('steam_status').description, /证书/);
+});
+
+test('steam_workshop_search 真的把 limit=200 夹到 100，而不是只改描述', async () => {
+  const { registerWebApiTools } = await import('../lib/tools/webapi.js');
+  const seen = [];
+  const tools = new Map();
+  const ctx = {
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition);
+        return () => tools.delete(definition.name);
+      },
+    },
+  };
+  const deps = {
+    http: {
+      async json(url) {
+        seen.push(url);
+        return { ok: true, data: { response: { total: 0, publishedfiledetails: [] } } };
+      },
+    },
+    getApiKey: async () => 'F'.repeat(32),
+    library: { read: async () => ({ detected: false, games: [], accounts: [] }) },
+  };
+  registerWebApiTools(ctx, { apiKeyEnv: 'STEAM_API_KEY', maxListedApps: 200, storeLanguage: 'schinese' }, deps);
+
+  await tools.get('steam_workshop_search').execute({ limit: 200 }, {});
+  assert.equal(new URL(seen.at(-1)).searchParams.get('numperpage'), '100');
+
+  await tools.get('steam_workshop_search').execute({ limit: 50 }, {});
+  assert.equal(new URL(seen.at(-1)).searchParams.get('numperpage'), '50');
 });

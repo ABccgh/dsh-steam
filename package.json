@@ -1,6 +1,6 @@
 {
   "name": "@local/steam",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Steam tools for DeepSeek Harness: local library, public store data, and the official Web API",
@@ -16,7 +16,7 @@
   ],
   "meta": {
     "title": "Steam",
-    "description": "读取本机 Steam 库（已安装游戏、占用、创意工坊内容）、公开商店数据，并在配置 API Key 后使用官方 Steam Web API。"
+    "description": "读取本机 Steam 库（已安装游戏、占用、创意工坊内容）、公开商店与评测数据（IUserReviewsService，免 Key），并在配置 API Key 后使用官方 Steam Web API。"
   },
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
