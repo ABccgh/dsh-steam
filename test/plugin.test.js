@@ -305,6 +305,36 @@ test('auto 模式：激活时凭据服务没就绪，稍后拿到 Key 会自动�
   assert.match(text, /已配置（长度 32）—— 5 个密钥层工具已注册/);
 });
 
+test('steam_status 报出凭据来源：四层里到底是哪一层供的值', async () => {
+  const credentials = {
+    async resolve() {
+      return { value: 'C'.repeat(32), source: 'test' };
+    },
+    async describe() {
+      return { configured: true, source: 'env:$DSH_HOME/.env', writable: false };
+    },
+  };
+  const { ctx, tools } = makeCtx({ credentials });
+  await apply(ctx, { webApi: 'on' });
+  const { text } = await tools.get('steam_status').execute({}, {});
+  assert.match(text, /已配置（长度 32；来源：env:\$DSH_HOME\/\.env（只读））/, '要带出来源与可写性');
+});
+
+test('steam_status 在凭据服务没有 describe 时照常工作（不报来源）', async () => {
+  const credentials = {
+    async resolve() {
+      return { value: 'D'.repeat(32), source: 'test' };
+    },
+  };
+  const { ctx, tools } = makeCtx({ credentials });
+  await apply(ctx, { webApi: 'on' });
+  const { text } = await tools.get('steam_status').execute({}, {});
+  assert.match(text, /已配置（长度 32）—— 5 个密钥层工具已注册/);
+  const keyLine = text.split('\n').find((line) => line.startsWith('Web API Key（STEAM_API_KEY）')) ?? '';
+  assert.ok(keyLine !== '', '状态里应有 Key 那一行');
+  assert.ok(!keyLine.includes('来源：'), `没有 describe 时不应报来源：${keyLine}`);
+});
+
 test('auto 补注册用 in-flight promise 去重：并发触发只注册一次', async () => {
   let released;
   const gate = new Promise((resolve) => {
