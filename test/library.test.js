@@ -10,12 +10,20 @@ import {
   directorySize,
   formatBytes,
   formatUnixLocal,
-  formatUnixSeconds,
   parseTasklistSteamPid,
   readAppManifest,
   scanSteamLibrary,
 } from '../lib/library.js';
-import { candidateSteamRoots, looksLikeSteamRoot, pathKey, resolveLibraryRoots } from '../lib/paths.js';
+import {
+  candidateSteamRoots,
+  findSteamRoot,
+  looksLikeSteamRoot,
+  parseRegistryOutput,
+  pathKey,
+  readRegistrySteamPath,
+  registryQueryCommand,
+  resolveLibraryRoots,
+} from '../lib/paths.js';
 
 const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -43,6 +51,8 @@ test('pathKey 在 Windows 上忽略大小写，其它平台不忽略', () => {
 test('candidateSteamRoots 按平台给出常见路径', () => {
   const windows = candidateSteamRoots('win32', { 'ProgramFiles(x86)': 'C:\\Program Files (x86)' }, 'C:\\Users\\x');
   assert.ok(windows.some((entry) => entry.toLowerCase() === 'c:\\program files (x86)\\steam'));
+  // 0.3.0：删掉写死的 D:\ 候选，其它盘符交给注册表与 libraryfolders.vdf。
+  assert.equal(windows.some((entry) => /^d:\\/i.test(entry)), false, '不该再写死 D: 盘候选');
   const mac = candidateSteamRoots('darwin', {}, '/Users/x');
   assert.deepEqual(mac, ['/Users/x/Library/Application Support/Steam']);
   const linux = candidateSteamRoots('linux', {}, '/home/x');
@@ -54,6 +64,58 @@ test('looksLikeSteamRoot 对不存在的目录与空值返回 false', () => {
   assert.equal(looksLikeSteamRoot(''), false);
   assert.equal(looksLikeSteamRoot('   '), false);
   assert.equal(looksLikeSteamRoot(path.join(tmpdir(), 'definitely-not-steam-8f3a')), false);
+});
+
+test('registryQueryCommand 走 PowerShell 并强制 UTF-8 输出', () => {
+  const command = registryQueryCommand();
+  assert.match(command, /\[Console\]::OutputEncoding/, '必须强制 UTF-8，否则中文路径会按控制台代码页输出');
+  assert.match(command, /HKCU:\\Software\\Valve\\Steam/);
+  assert.match(command, /SteamPath/);
+  assert.match(command, /InstallPath/);
+  // 不该再出现 reg.exe —— 它的输出编码无法控制。
+  assert.equal(command.includes('reg.exe'), false);
+});
+
+test('parseRegistryOutput 按 UTF-8 解码，中文与空格的安装路径不能乱码（fixture）', () => {
+  // fixture 是 PowerShell stdout 的原始字节（UTF-8）；这里直接喂 Buffer，
+  // 与默认执行器 `encoding: 'buffer'` 的行为一致。按 latin1/GBK 解码会得到乱码。
+  const fixture = readFileSync(path.join(fixtures, 'registry-steam-path.txt'));
+  const parsed = parseRegistryOutput(fixture);
+  assert.equal(parsed.psPath, 'HKCU:\\Software\\Valve\\Steam');
+  assert.equal(parsed.valueName, 'SteamPath');
+  assert.equal(parsed.root, 'D:\\游戏 库\\Steam');
+
+  // 空行、无分隔符的噪声行都要跳过。
+  assert.equal(parseRegistryOutput('INFO: not found\r\n'), undefined);
+  assert.equal(parseRegistryOutput(''), undefined);
+});
+
+test('readRegistrySteamPath 把 fixture 输出变成可用的 Steam 根目录', { skip: process.platform !== 'win32' }, async () => {
+  const fixture = readFileSync(path.join(fixtures, 'registry-steam-path.txt'));
+  const result = await readRegistrySteamPath({ run: async () => fixture, looksLike: () => true });
+  assert.equal(result.root, 'D:\\游戏 库\\Steam', '中文 + 空格的安装路径必须原样保留');
+  assert.equal(result.source, 'registry:HKCU\\Software\\Valve\\Steam\\SteamPath');
+});
+
+test('findSteamRoot 在配置了错误 steamPath 时继续自动探测，而不是停用探测', async () => {
+  await withTempRoot(
+    (root) => {
+      mkdirSync(path.join(root, 'steamapps'), { recursive: true });
+    },
+    async (root) => {
+      const bogus = path.join(tmpdir(), 'nope-not-steam-8f3a');
+      const detection = await findSteamRoot({
+        steamPath: bogus,
+        readRegistry: async () => ({ root, source: 'registry:test' }),
+      });
+      assert.equal(detection.detected, true);
+      assert.equal(pathKey(detection.root), pathKey(root));
+      assert.equal(detection.source, 'registry:test');
+      // 配置路径仍要出现在 candidates 里，用于解释「找过哪里」。
+      assert.equal(pathKey(detection.candidates[0]), pathKey(bogus));
+      assert.equal(detection.candidates.length, 2);
+    },
+  );
 });
 
 test('describeStateFlags 只给已知位贴标签，其余原样回报', () => {
@@ -71,12 +133,6 @@ test('formatBytes 处理 0、小数与非法值', () => {
   assert.equal(formatBytes(123456789), '117.7 MiB');
   assert.equal(formatBytes(-1), '未知');
   assert.equal(formatBytes(Number.NaN), '未知');
-});
-
-test('formatUnixSeconds 把 0 与非法值说成「从未」', () => {
-  assert.equal(formatUnixSeconds(0), '从未');
-  assert.equal(formatUnixSeconds(Number.NaN), '从未');
-  assert.equal(formatUnixSeconds(1700000000), '2023-11-14T22:13:20Z');
 });
 
 test('formatUnixLocal 用本机时区并带偏移量', () => {
@@ -249,11 +305,17 @@ test('活体扫描：本机 Steam 安装', async (t) => {
   assert.ok(Array.isArray(scan.workshop));
 });
 
-test('活体扫描：显式给出的错误 steamPath 不会静默退回自动探测', async () => {
-  const scan = await scanSteamLibrary({ steamPath: path.join(tmpdir(), 'nope-not-steam') });
-  assert.equal(scan.detected, false);
-  assert.deepEqual(scan.games, []);
-  assert.ok(scan.candidates.length >= 1);
+test('活体扫描：配置错误的 steamPath 会回落到自动探测', async (t) => {
+  const bogus = path.join(tmpdir(), 'nope-not-steam-8f3a');
+  const scan = await scanSteamLibrary({ steamPath: bogus });
+  // 无论本机有没有 Steam，配置过的路径都要留在「找过哪里」里。
+  assert.equal(pathKey(scan.candidates[0]), pathKey(bogus));
+  if (!scan.detected) {
+    t.skip('本机没有装 Steam，无法验证回落成功');
+    return;
+  }
+  assert.notEqual(pathKey(scan.root), pathKey(bogus), '回落后应找到真正的 Steam 根目录');
+  assert.ok(scan.games.length >= 1);
 });
 
 /**

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Steam",
+    "description": "读取本机 Steam 库（已安装游戏、占用、创意工坊内容）、公开商店与评测数据，并在配置 API Key 后使用官方 Steam Web API，共 14 个 steam_* 工具。"
+  }
+}

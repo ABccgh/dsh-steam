@@ -1,16 +1,20 @@
 {
   "name": "@local/steam",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Steam tools for DeepSeek Harness: local library, public store data, and the official Web API",
   "license": "MIT",
   "exports": {
     ".": "./lib/index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/**/*.js",
+    "locale/*.json",
+    "icon.svg",
     "cordis.patch.yml",
     "README.md"
   ],

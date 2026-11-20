@@ -73,9 +73,16 @@ test('coerceArguments 归一标量并检查必填项', () => {
   assert.throws(() => coerceArguments(schema, undefined), /缺少必填参数 appid/, 'undefined 视为空对象，随后撞上必填检查');
 });
 
-test('coerceArguments 忽略 schema 之外的参数', () => {
+test('coerceArguments 拒绝 schema 之外的参数（否则错参数会被静默丢弃）', () => {
   const schema = parametersToJsonSchema({ appid: { type: 'integer' } });
-  assert.deepEqual(coerceArguments(schema, { appid: 1, 注入: 'x' }), { appid: 1 });
+  assert.throws(() => coerceArguments(schema, { appid: 1, 注入: 'x' }), /不认识的参数：注入/);
+  assert.deepEqual(coerceArguments(schema, { appid: 1 }), { appid: 1 });
+});
+
+test('coerceArguments 拒绝 enum 之外的值', () => {
+  const schema = parametersToJsonSchema({ sort: { type: 'string', enum: ['name', 'size'] } });
+  assert.deepEqual(coerceArguments(schema, { sort: 'size' }), { sort: 'size' });
+  assert.throws(() => coerceArguments(schema, { sort: 'bogus' }), /参数 sort 只能是："name"、"size"/);
 });
 
 test('coerceArguments 对缺必填、坏类型、非对象参数抛错', () => {

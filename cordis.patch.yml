@@ -7,19 +7,23 @@
 # 改完需要**手动重载**（插件页把 steam 关开一次）：实测副本里的 patch 变更不会被 HMR
 # 自动拾取。只改配置值不需要重启应用。
 #
-# 密钥不写在这里。Steam Web API Key 走凭据服务，按下面的优先级解析：
-#   1. 启动环境变量（最高优先级，无条件生效）—— setx STEAM_API_KEY "你的KEY"
-#   2. $DSH_HOME\.credentials.yaml
-#   3. <启动目录>\.env
-#   4. $DSH_HOME\.env
-# 第 4 条是在启动时读一次的，且桌面版只在 cwd ≠ $DSH_HOME 时才把它当 user-env 层读，
-# 所以它并不总是生效；不确定时看 steam_status 最后一行的「已配置／未配置」。
+# 密钥不写在这里。Steam Web API Key 走凭据服务，与 DSH 自己的优先级一致（从高到低）：
+#   1. 已存凭据：$DSH_HOME\.credentials.yaml 的 version: 1 的 refs: 下（最高优先，凭据服务热加载）
+#   2. 启动 DSH 前的环境变量 —— setx STEAM_API_KEY "你的KEY"（需重启 DSH）
+#   3. 项目 .env（<启动目录>\.env，只在启动时读一次）
+#   4. $DSH_HOME\.env（最低优先，只在启动时读一次；桌面版还只在 cwd ≠ $DSH_HOME 时才读）
+# 注意：.credentials.yaml 是带版本的结构化文档，不是 dotenv。直接加一行裸
+# `STEAM_API_KEY: 你的KEY` 会被当作未知顶层键忽略，必须写成：
+#   version: 1
+#   refs:
+#     STEAM_API_KEY: 你的KEY
+# 也可以用凭据 UI 或 credentials.set 写入。不确定时看 steam_status 的「已配置／未配置」。
 #
 # webApi 取值：
-#   auto（默认）—— 能解析到 Key 才注册 5 个需要 Key 的工具；激活时凭据服务若尚未就绪，
-#                  插件会自动重试补注册，steam_status 也会顺手自愈一次
-#   on          —— 总是注册；没有 Key 时调用会返回可执行的修复提示
-#   off         —— 永不注册
+#   on   （默认）—— 始终注册 5 个需要 Key 的工具；缺 Key 时调用会返回完整配置指引
+#   auto          —— 能解析到 Key 才注册；激活时凭据服务若尚未就绪，插件会自动重试补注册，
+#                    steam_status 也会顺手自愈一次
+#   off           —— 永不注册
 #
 # trustSystemCa（auto/always/never）控制是否把系统根证书并入 Node 的默认 CA 列表，
 # 用来兼容 Steam++ / Watt Toolkit 这类加速器的自签证书；auto 只在遇到证书错误时并入一次。
@@ -32,7 +36,7 @@
       config:
         steamPath: ''
         extraLibraryPaths: []
-        webApi: auto
+        webApi: on
         apiKeyEnv: STEAM_API_KEY
         trustSystemCa: auto
         storeCountry: cn

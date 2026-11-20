@@ -15,6 +15,7 @@ import {
   reviewsUrl,
   storeSearchUrl,
 } from '../lib/store.js';
+import { registerStoreTools } from '../lib/tools/store.js';
 
 /** 需要真实网络时才跑的用例，默认跳过：`DSH_STEAM_LIVE=1 node --test`。 */
 const LIVE = process.env.DSH_STEAM_LIVE === '1';
@@ -245,6 +246,145 @@ test('fetchJson 把网络失败收敛成结果对象而不是抛异常', async (
   assert.equal(result.ok, false);
   assert.equal(typeof result.error, 'string');
   assert.equal(result.url, 'http://127.0.0.1:9/never-listening');
+});
+
+/**
+ * 用假的 http 注册公开层工具，并收集请求 URL。
+ * @param {(url: string) => any} handler - 按 URL 返回 JSON 数据。
+ * @returns {{ tools: Map<string, object>, urls: string[] }} 工具与请求记录。
+ */
+function makeStoreTools(handler) {
+  const urls = [];
+  const tools = new Map();
+  const ctx = {
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition);
+        return () => tools.delete(definition.name);
+      },
+    },
+  };
+  registerStoreTools(
+    ctx,
+    { storeCountry: 'cn', storeLanguage: 'schinese', maxListedApps: 200 },
+    {
+      http: {
+        async json(url) {
+          urls.push(url);
+          return { ok: true, data: handler(url) };
+        },
+      },
+    },
+  );
+  return { tools, urls };
+}
+
+test('steam_search 不把「接口没给价格」说成本区不售', async () => {
+  const { tools } = makeStoreTools(() => ({
+    total: 3,
+    items: [
+      // 免费游戏 / Demo 在 storesearch 里根本不带 price。
+      { id: 1, name: 'Free To Play', platforms: { windows: true } },
+      { id: 2, name: 'Paid', price: { currency: 'CNY', initial: 4200, final: 2100 }, platforms: { windows: true } },
+      { id: 3, name: 'Zero', price: { currency: 'CNY', initial: 0, final: 0 }, platforms: {} },
+    ],
+  }));
+  const { text } = await tools.get('steam_search').execute({ term: 'test' }, {});
+  assert.match(text, /Free To Play — 无价（免费或本区不售）/);
+  assert.match(text, /Paid — ¥21\.00（原价 ¥42\.00）/);
+  assert.match(text, /Zero — 免费/);
+  assert.equal(text.includes('本地区可能不售'), false, '不能断言本区不售');
+});
+
+test('steam_store_app 用 is_free 标注免费应用，不按「没有价格」猜不售', async () => {
+  const free = makeStoreTools(() => ({
+    431960: { success: true, data: { steam_appid: 431960, name: 'Free Game', type: 'game', is_free: true } },
+  }));
+  const freeText = await free.tools.get('steam_store_app').execute({ appid: 431960 }, {});
+  assert.match(freeText.text, /价格：免费/);
+  assert.equal(freeText.text.includes('本地区没有单独列出价格'), false);
+
+  const priceless = makeStoreTools(() => ({
+    1: { success: true, data: { steam_appid: 1, name: 'Unknown Price', type: 'game', is_free: false } },
+  }));
+  const unknownText = await priceless.tools.get('steam_store_app').execute({ appid: 1 }, {});
+  assert.match(unknownText.text, /可能是免费游戏、Demo，或本地区不售/);
+});
+
+test('mapAppData 用 is_free 与 price.final=0 判定免费', () => {
+  const free = pickAppDetails({ 1: { success: true, data: { steam_appid: 1, name: 'F2P', is_free: true } } }, 1);
+  assert.equal(free.app.isFree, true);
+  assert.equal(free.app.price, null);
+
+  const zero = pickAppDetails(
+    { 2: { success: true, data: { steam_appid: 2, name: 'Zero', price_overview: { currency: 'CNY', initial: 0, final: 0 } } } },
+    2,
+  );
+  assert.equal(zero.app.isFree, true, '没有 is_free 时用 price.final=0 兜底');
+
+  const paid = pickAppDetails(
+    { 3: { success: true, data: { steam_appid: 3, name: 'Paid', is_free: false, price_overview: { final: 100 } } } },
+    3,
+  );
+  assert.equal(paid.app.isFree, false);
+});
+
+test('steam_reviews 把 cursor 传给接口并回显下一次游标', async () => {
+  const { tools, urls } = makeStoreTools(() => ({
+    response: {
+      reviews: [{ voted_up: true, review: '不错的游戏', author: { playtime_forever: 60 } }],
+      cursor: 'NEXT==',
+    },
+  }));
+  const { text } = await tools.get('steam_reviews').execute({ appid: 431960, cursor: 'PREV==', sampleLimit: 1 }, {});
+  const input = JSON.parse(new URL(urls.at(-1)).searchParams.get('input_json'));
+  assert.equal(input.cursor, 'PREV==', 'cursor 必须传给 Steam');
+  assert.match(text, /下一页：cursor=NEXT==/, '输出必须回显下一次的 cursor');
+
+  await tools.get('steam_reviews').execute({ appid: 431960, sampleLimit: 1 }, {});
+  const plain = JSON.parse(new URL(urls.at(-1)).searchParams.get('input_json'));
+  assert.equal('cursor' in plain, false, '第一页不该带 cursor 字段');
+});
+
+test('steam_reviews 在评测正文被截断时标出「已截断」', async () => {
+  const { tools } = makeStoreTools(() => ({
+    response: {
+      reviews: [{ voted_up: true, review: '啊'.repeat(600), author: {} }],
+      cursor: '',
+    },
+  }));
+  const { text } = await tools.get('steam_reviews').execute({ appid: 1, sampleLimit: 1 }, {});
+  assert.match(text, /（已截断）/);
+});
+
+test('取消时工具抛 AbortError，而不是普通 Error（0.3.0 取消语义）', async () => {
+  const tools = new Map();
+  const ctx = {
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition);
+        return () => tools.delete(definition.name);
+      },
+    },
+  };
+  registerStoreTools(
+    ctx,
+    { storeCountry: 'cn', storeLanguage: 'schinese', maxListedApps: 200 },
+    {
+      http: {
+        async json() {
+          return { ok: false, aborted: true, error: '请求已被取消' };
+        },
+      },
+    },
+  );
+  await assert.rejects(
+    () => tools.get('steam_app_stats').execute({ appid: 1 }, {}),
+    (error) => {
+      assert.equal(error.name, 'AbortError', '取消必须保留 AbortError 身份，否则 DSH 会记成普通失败');
+      return true;
+    },
+  );
 });
 
 test('活体：真实商店端点', { skip: !LIVE }, async () => {

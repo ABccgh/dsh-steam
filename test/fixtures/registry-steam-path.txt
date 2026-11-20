@@ -1,0 +1,1 @@
+HKCU:\Software\Valve\Steam|SteamPath|D:\游戏 库\Steam

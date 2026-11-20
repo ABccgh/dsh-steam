@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { registerWebApiTools } from '../lib/tools/webapi.js';
+
 import {
   PERSONA_STATES,
   looksLikeSteamId64,
@@ -232,4 +234,117 @@ test('mapQueryFiles 对无法解析的数值字段回退到 0/null 而不是 NaN
   assert.equal(mapped.items[0].fileSize, 0);
   assert.equal(mapped.items[0].views, 0);
   assert.equal(mapped.items[0].appid, null);
+});
+
+/**
+ * 用假的 http 与库读取器注册密钥层工具。
+ * @param {{ httpData?: any, library?: object, key?: string }} [options] - 替身数据。
+ * @returns {Map<string, object>} 工具表。
+ */
+function makeWebApiTools(options = {}) {
+  const tools = new Map();
+  const ctx = {
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition);
+        return () => tools.delete(definition.name);
+      },
+    },
+  };
+  const deps = {
+    http: {
+      async json() {
+        return { ok: true, data: options.httpData };
+      },
+    },
+    getApiKey: async () => options.key ?? 'K'.repeat(32),
+    library: options.library ?? { read: async () => ({ detected: false, games: [], accounts: [] }) },
+  };
+  registerWebApiTools(ctx, { apiKeyEnv: 'STEAM_API_KEY', maxListedApps: 200, storeLanguage: 'schinese' }, deps);
+  return tools;
+}
+
+test('steam_owned_games 在本机库未探测到时只提示库不可用，不逐条标「未装在本机」', async () => {
+  const httpData = {
+    response: {
+      game_count: 2,
+      games: [
+        { appid: 1, name: 'A', playtime_forever: 10 },
+        { appid: 2, name: 'B', playtime_forever: 20 },
+      ],
+    },
+  };
+  const undetected = makeWebApiTools({ httpData, library: { read: async () => ({ detected: false, games: [], accounts: [] }) } });
+  const { text } = await undetected.get('steam_owned_games').execute({ steamId: '76561190000000000' }, {});
+  assert.match(text, /本机 Steam 库未探测到，无法标注是否已装在本机/);
+  assert.equal(text.includes('— 未装在本机'), false, '不能拿缺失的库数据当结论');
+  assert.equal(text.includes('— 已装在本机'), false, '没有本机库数据时不该给出安装状态');
+
+  const detected = makeWebApiTools({ httpData, library: { read: async () => ({ detected: true, games: [{ appid: 2 }], accounts: [] }) } });
+  const marked = await detected.get('steam_owned_games').execute({ steamId: '76561190000000000' }, {});
+  assert.match(marked.text, /— 已装在本机/, '探测到本机库时才标安装状态');
+  assert.match(marked.text, /— 未装在本机/);
+});
+
+test('取消时密钥层工具也抛 AbortError，而不是普通 Error', async () => {
+  const tools = new Map();
+  const ctx = {
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition);
+        return () => tools.delete(definition.name);
+      },
+    },
+  };
+  registerWebApiTools(
+    ctx,
+    { apiKeyEnv: 'STEAM_API_KEY', maxListedApps: 200, storeLanguage: 'schinese' },
+    {
+      http: {
+        async json() {
+          return { ok: false, aborted: true, error: '请求已被取消' };
+        },
+      },
+      getApiKey: async () => 'K'.repeat(32),
+      library: { read: async () => ({ detected: false, games: [], accounts: [] }) },
+    },
+  );
+  await assert.rejects(
+    () => tools.get('steam_player').execute({ steamId: '76561190000000000' }, {}),
+    (error) => {
+      assert.equal(error.name, 'AbortError');
+      return true;
+    },
+  );
+});
+
+test('steam_workshop_search 的 page 参数真的进 URL，空页给出回看提示', async () => {
+  const urls = [];
+  const tools = new Map();
+  const ctx = {
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition);
+        return () => tools.delete(definition.name);
+      },
+    },
+  };
+  registerWebApiTools(
+    ctx,
+    { apiKeyEnv: 'STEAM_API_KEY', maxListedApps: 200, storeLanguage: 'schinese' },
+    {
+      http: {
+        async json(url) {
+          urls.push(url);
+          return { ok: true, data: { response: { total: 0, publishedfiledetails: [] } } };
+        },
+      },
+      getApiKey: async () => 'K'.repeat(32),
+      library: { read: async () => ({ detected: false, games: [], accounts: [] }) },
+    },
+  );
+  const { text } = await tools.get('steam_workshop_search').execute({ page: 4, limit: 10 }, {});
+  assert.equal(new URL(urls.at(-1)).searchParams.get('page'), '4');
+  assert.match(text, /第 4 页/);
+  assert.match(text, /page=3/, '空页也要能回到上一页');
 });
